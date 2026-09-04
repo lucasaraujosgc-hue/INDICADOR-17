@@ -1,26 +1,36 @@
-# Usa uma imagem leve do Node.js
-FROM node:20-alpine
+FROM node:22-alpine AS builder
 
-# Define o diretório de trabalho dentro do container
 WORKDIR /app
 
-# Copia os arquivos de dependência primeiro para aproveitar o cache do Docker
-COPY package*.json ./
+# Install build dependencies for better-sqlite3
+RUN apk add --no-cache python3 make g++
 
-# Instala as dependências do projeto
+# Install dependencies
+COPY package.json package-lock.json* ./
 RUN npm install
 
-# Copia todo o restante do código fonte para o container
+# Copy source and build
 COPY . .
-
-# Executa o build do Frontend (Gera a pasta 'dist')
 RUN npm run build
 
-# Cria a pasta onde o banco de dados ficará salvo
-RUN mkdir -p data
+# Serve stage using node
+FROM node:22-alpine
 
-# Expõe a porta 3000
+WORKDIR /app
+
+# Ensure we have the system libraries for sqlite3
+RUN apk add --no-cache libstdc++
+
+# Copy built files and dependencies from the builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules ./node_modules
+
+# Ensure data folder exists
+RUN mkdir -p /app/data
+
 EXPOSE 3000
 
-# Comando para iniciar o servidor
-CMD ["npm", "start"]
+ENV NODE_ENV=production
+
+CMD ["node", "dist/server.cjs"]
