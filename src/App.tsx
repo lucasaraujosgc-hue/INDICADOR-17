@@ -143,6 +143,7 @@ export default function App() {
       ]);
     } catch (error) {
       console.error("Failed to export Excel", error);
+      alert("Erro ao exportar a planilha. Verifique o console para mais detalhes. " + String(error));
     } finally {
       setIsExporting(false);
     }

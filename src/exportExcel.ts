@@ -53,14 +53,18 @@ export async function exportToExcel(
   for (const chart of chartElements) {
     const el = document.getElementById(chart.id);
     if (el) {
-      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
-      const imgData = canvas.toDataURL('image/png');
-      const imageId = workbook.addImage({ base64: imgData, extension: 'png' });
-      
-      dashSheet.getCell(`B${currentImageRow}`).value = chart.name;
-      dashSheet.getCell(`B${currentImageRow}`).font = { bold: true, size: 12 };
-      dashSheet.addImage(imageId, { tl: { col: 1, row: currentImageRow + 1 }, ext: { width: 800, height: 400 } });
-      currentImageRow += 24; 
+      try {
+        const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+        const imgData = canvas.toDataURL('image/png');
+        const imageId = workbook.addImage({ base64: imgData, extension: 'png' });
+        
+        dashSheet.getCell(`B${currentImageRow}`).value = chart.name;
+        dashSheet.getCell(`B${currentImageRow}`).font = { bold: true, size: 12 };
+        dashSheet.addImage(imageId, { tl: { col: 1, row: currentImageRow + 1 }, ext: { width: 800, height: 400 } });
+        currentImageRow += 24; 
+      } catch (err) {
+        console.warn(`Failed to render chart ${chart.id} to Excel`, err);
+      }
     }
   }
 
