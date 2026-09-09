@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Papa from 'papaparse';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
@@ -8,7 +8,7 @@ import { UploadCloud, FileSpreadsheet, Loader2, Filter, Calendar, Trash2, AlertT
 import { startOfDay, endOfDay, parseISO } from 'date-fns';
 import { 
   ProcessedRecord, processCsvData, getAverageWaitTimeByCbo, getAppointmentsByCbo, 
-  getAppointmentsByType, getAverageWaitTimeByUnit, getAverageWaitTimeByProfessional, getWaitTimeTimeline 
+  getAppointmentsByType, getAverageWaitTimeByUnit, getAverageWaitTimeByProfessional, getWaitTimeTimeline, recalculateRecord
 } from './utils';
 import { exportToExcel } from './exportExcel';
 import { DataTable } from './components/DataTable';
@@ -37,6 +37,20 @@ export default function App() {
   const [deleteStart, setDeleteStart] = useState<string>('');
   const [deleteEnd, setDeleteEnd] = useState<string>('');
 
+  // Initial load
+  useEffect(() => {
+    fetch('/api/agendamentos')
+      .then(res => res.json())
+      .then(rows => {
+        if (Array.isArray(rows)) {
+          // Rehydrate Date objects
+          const hydrated = rows.map(r => recalculateRecord(r as ProcessedRecord));
+          setData(hydrated);
+        }
+      })
+      .catch(err => console.error("Error loading data:", err));
+  }, []);
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -45,17 +59,38 @@ export default function App() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (results) => {
+      complete: async (results) => {
         const processed = processCsvData(results.data);
-        setData(processed);
-        // Reset filters when new file is loaded
-        setSelectedUnits(new Set());
-        setSelectedPros(new Set());
-        setSelectedCbos(new Set());
-        setSelectedTypes(new Set());
-        setStartDate('');
-        setEndDate('');
-        setIsProcessing(false);
+        
+        try {
+          // Serialize dates for DB storage (using the Str fields which are already populated)
+          // We can just send the processed records, the backend only takes the explicit string/number fields in SQL
+          await fetch('/api/agendamentos/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ records: processed })
+          });
+          
+          setData(prev => {
+            const combined = [...prev, ...processed];
+            // Basic deduplication by ID if necessary, or just rely on backend REPLACE
+            const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
+            return unique;
+          });
+          
+          // Reset filters when new file is loaded
+          setSelectedUnits(new Set());
+          setSelectedPros(new Set());
+          setSelectedCbos(new Set());
+          setSelectedTypes(new Set());
+          setStartDate('');
+          setEndDate('');
+        } catch (err) {
+          console.error("Error saving to DB:", err);
+          alert("Erro ao salvar os dados no banco.");
+        } finally {
+          setIsProcessing(false);
+        }
       },
       error: (error) => {
         console.error("Error parsing CSV:", error);
@@ -64,15 +99,42 @@ export default function App() {
     });
   };
 
-  const handleUpdateRecord = (id: string, updatedRecord: Partial<ProcessedRecord>) => {
-    setData(prev => prev.map(row => row.id === id ? { ...row, ...updatedRecord } as ProcessedRecord : row));
+  const handleUpdateRecord = async (id: string, updatedRecord: Partial<ProcessedRecord>) => {
+    // Optimistic update
+    let fullUpdatedRecord: ProcessedRecord | null = null;
+    setData(prev => prev.map(row => {
+      if (row.id === id) {
+        fullUpdatedRecord = { ...row, ...updatedRecord } as ProcessedRecord;
+        return fullUpdatedRecord;
+      }
+      return row;
+    }));
+
+    if (fullUpdatedRecord) {
+      try {
+        await fetch(`/api/agendamentos/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fullUpdatedRecord)
+        });
+      } catch (err) {
+        console.error("Error updating record:", err);
+      }
+    }
   };
 
-  const handleDeleteRecord = (id: string) => {
+  const handleDeleteRecord = async (id: string) => {
     setData(prev => prev.filter(row => row.id !== id));
+    try {
+      await fetch(`/api/agendamentos/${id}`, {
+        method: 'DELETE'
+      });
+    } catch (err) {
+      console.error("Error deleting record:", err);
+    }
   };
 
-  const handleBulkDelete = () => {
+  const handleBulkDelete = async () => {
     const sDate = deleteStart ? startOfDay(parseISO(deleteStart)) : null;
     const eDate = deleteEnd ? endOfDay(parseISO(deleteEnd)) : null;
     
@@ -81,6 +143,7 @@ export default function App() {
       return;
     }
 
+    const idsToDelete: string[] = [];
     const newData = data.filter(d => {
       const recordDate = d.dataAtendimento || d.dataCriacao;
       if (!recordDate) return true; // Keep records without dates
@@ -90,6 +153,10 @@ export default function App() {
       if (eDate && recordDate > eDate) isWithin = false;
 
       // Filter OUT records that are within the range
+      if (isWithin) {
+        idsToDelete.push(d.id);
+      }
+      
       return !isWithin;
     });
 
@@ -97,6 +164,18 @@ export default function App() {
     setIsDeleteModalOpen(false);
     setDeleteStart('');
     setDeleteEnd('');
+
+    if (idsToDelete.length > 0) {
+      try {
+        await fetch('/api/agendamentos/delete-bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: idsToDelete })
+        });
+      } catch (err) {
+        console.error("Error bulk deleting:", err);
+      }
+    }
   };
 
   // Extract unique values for filters

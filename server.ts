@@ -20,6 +20,93 @@ async function startServer() {
     });
   });
 
+  // API agendamentos
+  app.get("/api/agendamentos", (req, res) => {
+    try {
+      const rows = db.prepare('SELECT * FROM agendamentos').all();
+      res.json(rows);
+    } catch (err) {
+      console.error("Error fetching agendamentos", err);
+      res.status(500).json({ error: "Failed to fetch agendamentos" });
+    }
+  });
+
+  app.post("/api/agendamentos/bulk", (req, res) => {
+    try {
+      const records = req.body.records;
+      if (!Array.isArray(records)) {
+        return res.status(400).json({ error: "Records must be an array" });
+      }
+
+      // We use a transaction for performance
+      const insert = db.prepare(`
+        INSERT OR REPLACE INTO agendamentos 
+        (id, unidadeSaude, dataCriacaoStr, dataAtendimentoStr, tempoEsperaDias, tipoConsulta, profissional, cboOriginal, cboCorrigido)
+        VALUES (@id, @unidadeSaude, @dataCriacaoStr, @dataAtendimentoStr, @tempoEsperaDias, @tipoConsulta, @profissional, @cboOriginal, @cboCorrigido)
+      `);
+      
+      const insertMany = db.transaction((rows) => {
+        for (const row of rows) insert.run(row);
+      });
+
+      insertMany(records);
+      res.json({ success: true, count: records.length });
+    } catch (err) {
+      console.error("Error inserting agendamentos in bulk", err);
+      res.status(500).json({ error: "Failed to save agendamentos" });
+    }
+  });
+
+  app.put("/api/agendamentos/:id", (req, res) => {
+    try {
+      const id = req.params.id;
+      const data = req.body;
+      const update = db.prepare(`
+        UPDATE agendamentos 
+        SET unidadeSaude = @unidadeSaude, dataCriacaoStr = @dataCriacaoStr, dataAtendimentoStr = @dataAtendimentoStr, 
+            tempoEsperaDias = @tempoEsperaDias, tipoConsulta = @tipoConsulta, profissional = @profissional, 
+            cboOriginal = @cboOriginal, cboCorrigido = @cboCorrigido
+        WHERE id = @id
+      `);
+      update.run({ ...data, id });
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Error updating agendamento", err);
+      res.status(500).json({ error: "Failed to update agendamento" });
+    }
+  });
+
+  app.delete("/api/agendamentos/:id", (req, res) => {
+    try {
+      const id = req.params.id;
+      db.prepare('DELETE FROM agendamentos WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Error deleting agendamento", err);
+      res.status(500).json({ error: "Failed to delete agendamento" });
+    }
+  });
+
+  app.post("/api/agendamentos/delete-bulk", (req, res) => {
+    try {
+      const ids = req.body.ids;
+      if (!Array.isArray(ids)) {
+        return res.status(400).json({ error: "Ids must be an array" });
+      }
+      
+      const deleteStmt = db.prepare('DELETE FROM agendamentos WHERE id = ?');
+      const deleteMany = db.transaction((idsToDelete) => {
+        for (const id of idsToDelete) deleteStmt.run(id);
+      });
+      
+      deleteMany(ids);
+      res.json({ success: true, count: ids.length });
+    } catch (err) {
+      console.error("Error bulk deleting agendamentos", err);
+      res.status(500).json({ error: "Failed to bulk delete agendamentos" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
