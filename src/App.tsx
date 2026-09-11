@@ -29,13 +29,17 @@ export default function App() {
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
   
   // Time filter state
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
+  const [atendimentoStart, setAtendimentoStart] = useState<string>('');
+  const [atendimentoEnd, setAtendimentoEnd] = useState<string>('');
+  const [criacaoStart, setCriacaoStart] = useState<string>('');
+  const [criacaoEnd, setCriacaoEnd] = useState<string>('');
 
   // Bulk Delete state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [deleteStart, setDeleteStart] = useState<string>('');
-  const [deleteEnd, setDeleteEnd] = useState<string>('');
+  const [deleteAtendimentoStart, setDeleteAtendimentoStart] = useState<string>('');
+  const [deleteAtendimentoEnd, setDeleteAtendimentoEnd] = useState<string>('');
+  const [deleteCriacaoStart, setDeleteCriacaoStart] = useState<string>('');
+  const [deleteCriacaoEnd, setDeleteCriacaoEnd] = useState<string>('');
 
   // Initial load
   useEffect(() => {
@@ -83,8 +87,10 @@ export default function App() {
           setSelectedPros(new Set());
           setSelectedCbos(new Set());
           setSelectedTypes(new Set());
-          setStartDate('');
-          setEndDate('');
+          setAtendimentoStart('');
+          setAtendimentoEnd('');
+          setCriacaoStart('');
+          setCriacaoEnd('');
         } catch (err) {
           console.error("Error saving to DB:", err);
           alert("Erro ao salvar os dados no banco.");
@@ -135,35 +141,52 @@ export default function App() {
   };
 
   const handleBulkDelete = async () => {
-    const sDate = deleteStart ? startOfDay(parseISO(deleteStart)) : null;
-    const eDate = deleteEnd ? endOfDay(parseISO(deleteEnd)) : null;
+    const sDateAtend = deleteAtendimentoStart ? startOfDay(parseISO(deleteAtendimentoStart)) : null;
+    const eDateAtend = deleteAtendimentoEnd ? endOfDay(parseISO(deleteAtendimentoEnd)) : null;
+    const sDateCriac = deleteCriacaoStart ? startOfDay(parseISO(deleteCriacaoStart)) : null;
+    const eDateCriac = deleteCriacaoEnd ? endOfDay(parseISO(deleteCriacaoEnd)) : null;
     
-    if (!sDate && !eDate) {
-      alert("Por favor, selecione ao menos uma data (Inicial ou Final) para exclusão.");
+    const hasAtendimentoFilter = sDateAtend || eDateAtend;
+    const hasCriacaoFilter = sDateCriac || eDateCriac;
+
+    if (!hasAtendimentoFilter && !hasCriacaoFilter) {
+      alert("Por favor, selecione ao menos uma data (Criação ou Atendimento) para exclusão.");
       return;
     }
 
     const idsToDelete: string[] = [];
     const newData = data.filter(d => {
-      const recordDate = d.dataAtendimento || d.dataCriacao;
-      if (!recordDate) return true; // Keep records without dates
+      let matchesDelete = true;
 
-      let isWithin = true;
-      if (sDate && recordDate < sDate) isWithin = false;
-      if (eDate && recordDate > eDate) isWithin = false;
-
-      // Filter OUT records that are within the range
-      if (isWithin) {
-        idsToDelete.push(d.id);
+      if (hasAtendimentoFilter) {
+        if (!d.dataAtendimento) matchesDelete = false;
+        else {
+          if (sDateAtend && d.dataAtendimento < sDateAtend) matchesDelete = false;
+          if (eDateAtend && d.dataAtendimento > eDateAtend) matchesDelete = false;
+        }
       }
-      
-      return !isWithin;
+
+      if (hasCriacaoFilter) {
+        if (!d.dataCriacao) matchesDelete = false;
+        else {
+          if (sDateCriac && d.dataCriacao < sDateCriac) matchesDelete = false;
+          if (eDateCriac && d.dataCriacao > eDateCriac) matchesDelete = false;
+        }
+      }
+
+      if (matchesDelete) {
+        idsToDelete.push(d.id);
+        return false;
+      }
+      return true;
     });
 
     setData(newData);
     setIsDeleteModalOpen(false);
-    setDeleteStart('');
-    setDeleteEnd('');
+    setDeleteAtendimentoStart('');
+    setDeleteAtendimentoEnd('');
+    setDeleteCriacaoStart('');
+    setDeleteCriacaoEnd('');
 
     if (idsToDelete.length > 0) {
       try {
@@ -185,17 +208,17 @@ export default function App() {
   
   // Apply filters
   const filteredData = useMemo(() => {
-    let sDate: Date | null = null;
-    let eDate: Date | null = null;
-
-    if (startDate) sDate = startOfDay(parseISO(startDate));
-    if (endDate) eDate = endOfDay(parseISO(endDate));
+    const sDateAtend = atendimentoStart ? startOfDay(parseISO(atendimentoStart)) : null;
+    const eDateAtend = atendimentoEnd ? endOfDay(parseISO(atendimentoEnd)) : null;
+    const sDateCriac = criacaoStart ? startOfDay(parseISO(criacaoStart)) : null;
+    const eDateCriac = criacaoEnd ? endOfDay(parseISO(criacaoEnd)) : null;
 
     return data.filter(d => {
-      // Time Filter (Fallback to dt_criacao if dt_atendimento is missing)
-      const recordDate = d.dataAtendimento || d.dataCriacao;
-      if (sDate && recordDate && recordDate < sDate) return false;
-      if (eDate && recordDate && recordDate > eDate) return false;
+      // Time Filters
+      if (sDateAtend && (!d.dataAtendimento || d.dataAtendimento < sDateAtend)) return false;
+      if (eDateAtend && (!d.dataAtendimento || d.dataAtendimento > eDateAtend)) return false;
+      if (sDateCriac && (!d.dataCriacao || d.dataCriacao < sDateCriac)) return false;
+      if (eDateCriac && (!d.dataCriacao || d.dataCriacao > eDateCriac)) return false;
 
       // Categorical Filters
       if (selectedUnits.size > 0 && !selectedUnits.has(d.unidadeSaude)) return false;
@@ -205,7 +228,7 @@ export default function App() {
       
       return true;
     });
-  }, [data, selectedUnits, selectedPros, selectedCbos, selectedTypes, startDate, endDate]);
+  }, [data, selectedUnits, selectedPros, selectedCbos, selectedTypes, atendimentoStart, atendimentoEnd, criacaoStart, criacaoEnd]);
 
   const handleExport = async () => {
     if (filteredData.length === 0) return;
@@ -331,8 +354,10 @@ export default function App() {
                         setSelectedPros(new Set());
                         setSelectedCbos(new Set());
                         setSelectedTypes(new Set());
-                        setStartDate('');
-                        setEndDate('');
+                        setAtendimentoStart('');
+                        setAtendimentoEnd('');
+                        setCriacaoStart('');
+                        setCriacaoEnd('');
                       }}
                       className="text-xs text-teal-600 hover:text-teal-700 font-medium"
                     >
@@ -342,26 +367,48 @@ export default function App() {
 
                   <div className="space-y-6">
                     
-                    {/* Time Filter */}
+                    {/* Time Filters */}
                     <div>
-                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1"><Calendar className="w-3 h-3"/> Período</h4>
-                      <div className="flex flex-col gap-2">
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1"><Calendar className="w-3 h-3"/> Criação</h4>
+                      <div className="flex flex-col gap-2 mb-4">
                         <div>
-                          <label className="text-[10px] text-slate-500 mb-1 block">Data Inicial</label>
+                          <label className="text-[10px] text-slate-500 mb-1 block">Inicial</label>
                           <input 
                             type="date" 
                             className="w-full text-sm px-2 py-1.5 border border-slate-300 rounded focus:ring-teal-500 focus:border-teal-500"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
+                            value={criacaoStart}
+                            onChange={(e) => setCriacaoStart(e.target.value)}
                           />
                         </div>
                         <div>
-                          <label className="text-[10px] text-slate-500 mb-1 block">Data Final</label>
+                          <label className="text-[10px] text-slate-500 mb-1 block">Final</label>
                           <input 
                             type="date" 
                             className="w-full text-sm px-2 py-1.5 border border-slate-300 rounded focus:ring-teal-500 focus:border-teal-500"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
+                            value={criacaoEnd}
+                            onChange={(e) => setCriacaoEnd(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1"><Calendar className="w-3 h-3"/> Atendimento</h4>
+                      <div className="flex flex-col gap-2">
+                        <div>
+                          <label className="text-[10px] text-slate-500 mb-1 block">Inicial</label>
+                          <input 
+                            type="date" 
+                            className="w-full text-sm px-2 py-1.5 border border-slate-300 rounded focus:ring-teal-500 focus:border-teal-500"
+                            value={atendimentoStart}
+                            onChange={(e) => setAtendimentoStart(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-slate-500 mb-1 block">Final</label>
+                          <input 
+                            type="date" 
+                            className="w-full text-sm px-2 py-1.5 border border-slate-300 rounded focus:ring-teal-500 focus:border-teal-500"
+                            value={atendimentoEnd}
+                            onChange={(e) => setAtendimentoEnd(e.target.value)}
                           />
                         </div>
                       </div>
@@ -592,28 +639,53 @@ export default function App() {
               <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
                 <p className="text-sm text-orange-800">
-                  Os registros que tiverem a data de atendimento (ou criação) dentro do período selecionado serão excluídos <strong>permanentemente</strong> da análise atual.
+                  Os registros que combinarem com <strong>qualquer</strong> um dos períodos selecionados (Criação ou Atendimento) serão excluídos <strong>permanentemente</strong> do sistema.
                 </p>
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium text-slate-700 block mb-1.5">Data Inicial</label>
-                  <input 
-                    type="date" 
-                    className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-rose-500 focus:border-rose-500"
-                    value={deleteStart}
-                    onChange={(e) => setDeleteStart(e.target.value)}
-                  />
+                <h4 className="text-sm font-semibold text-slate-800 border-b border-slate-200 pb-2">Período de Criação</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-medium text-slate-700 block mb-1.5">Data Inicial</label>
+                    <input 
+                      type="date" 
+                      className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-rose-500 focus:border-rose-500"
+                      value={deleteCriacaoStart}
+                      onChange={(e) => setDeleteCriacaoStart(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-700 block mb-1.5">Data Final</label>
+                    <input 
+                      type="date" 
+                      className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-rose-500 focus:border-rose-500"
+                      value={deleteCriacaoEnd}
+                      onChange={(e) => setDeleteCriacaoEnd(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-slate-700 block mb-1.5">Data Final</label>
-                  <input 
-                    type="date" 
-                    className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-rose-500 focus:border-rose-500"
-                    value={deleteEnd}
-                    onChange={(e) => setDeleteEnd(e.target.value)}
-                  />
+
+                <h4 className="text-sm font-semibold text-slate-800 border-b border-slate-200 pb-2 mt-4">Período de Atendimento</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-medium text-slate-700 block mb-1.5">Data Inicial</label>
+                    <input 
+                      type="date" 
+                      className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-rose-500 focus:border-rose-500"
+                      value={deleteAtendimentoStart}
+                      onChange={(e) => setDeleteAtendimentoStart(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-700 block mb-1.5">Data Final</label>
+                    <input 
+                      type="date" 
+                      className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-rose-500 focus:border-rose-500"
+                      value={deleteAtendimentoEnd}
+                      onChange={(e) => setDeleteAtendimentoEnd(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
